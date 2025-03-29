@@ -1,35 +1,15 @@
 import random
 import math
 import matplotlib.pyplot as plt
+from IPython.display import clear_output
+from config import *
 
-NUM_CITIES = 50
-POPULATION_COUNT = 100
-BEST_COUNT = POPULATION_COUNT // 5
-GRID_SIZE = 1000
-DIST_FROM_BOUND = 50
-MUTATION_RATE = 0.2
-GENERATIONS = 1000
-SELECTION_METHOD = "tournament"  #"tournament", "roulette"
-
-
-def generate_cities(n, size=GRID_SIZE):
-    cities = [(random.randint(0 + DIST_FROM_BOUND, size - DIST_FROM_BOUND),
-               random.randint(0 + DIST_FROM_BOUND, size - DIST_FROM_BOUND)) for _ in range(n)]
-    return cities
-
-def generate_cities_circle(n, grid_size=GRID_SIZE, margin=DIST_FROM_BOUND):
-    """Generuje miasta ułożone równomiernie na okręgu"""
-    radius = (grid_size // 2) - margin
-    center_x = grid_size // 2
-    center_y = grid_size // 2
-    cities = []
-    for i in range(n):
-        angle = 2 * math.pi * i / n
-        x = int(center_x + radius * math.cos(angle))
-        y = int(center_y + radius * math.sin(angle))
-        cities.append((x, y))
-    return cities
-
+def generate_cities(n, size):
+    return [
+        (random.randint(DIST_FROM_BOUND, size - DIST_FROM_BOUND),
+         random.randint(DIST_FROM_BOUND, size - DIST_FROM_BOUND))
+        for _ in range(n)
+    ]
 
 def plot_route(route, cities, generation=None):
     ordered_cities = [cities[i] for i in route] + [cities[route[0]]]
@@ -47,148 +27,138 @@ def plot_route(route, cities, generation=None):
     plt.title(title)
     plt.show()
 
-
 def evaluate_distance(order, cities):
-    total_distance = 0
-    for i in range(len(order)):
-        city_a = cities[order[i]]
-        city_b = cities[(order[(i + 1) % len(order)])]
-        dx = city_a[0] - city_b[0]
-        dy = city_a[1] - city_b[1]
-        total_distance += math.hypot(dx, dy)
-    return total_distance
+    return sum(
+        math.hypot(cities[order[i]][0] - cities[order[(i + 1) % len(order)]][0],
+                   cities[order[i]][1] - cities[order[(i + 1) % len(order)]][1])
+        for i in range(len(order))
+    )
 
-def generate_population(population_size, num_cities):
-    population = []
+def generate_population(pop_size, num_cities):
     base_order = list(range(num_cities))
-    for _ in range(population_size):
-        individual = base_order.copy()
-        random.shuffle(individual)
-        population.append(individual)
-    return population
+    return [random.sample(base_order, len(base_order)) for _ in range(pop_size)]
 
 def select_best_individuals(population, cities, count):
-    scored = [(individual, evaluate_distance(individual, cities)) for individual in population]
-    scored.sort(key=lambda x: x[1])
-    best_individuals = [ind for ind, dist in scored[:count]]
-    return best_individuals
+    return sorted(population, key=lambda ind: evaluate_distance(ind, cities))[:count]
 
 def roulette_selection(best_individuals, cities):
-    """Losuje jednego osobnika z elity na podstawie ruletki (lepszy = większa szansa)"""
-    fitness_scores = []
-    for ind in best_individuals:
-        dist = evaluate_distance(ind, cities)
-        fitness_scores.append(1 / dist)  # odwrotność dystansu = fitness
-
-    total_fitness = sum(fitness_scores)
-    probabilities = [f / total_fitness for f in fitness_scores]
-
-    chosen = random.choices(best_individuals, weights=probabilities, k=1)[0]
-    return chosen
+    fitness = [1 / evaluate_distance(ind, cities) for ind in best_individuals]
+    total = sum(fitness)
+    probs = [f / total for f in fitness]
+    return random.choices(best_individuals, weights=probs, k=1)[0]
 
 def tournament_selection(population, cities, k=3):
-    """Wybiera najlepszego osobnika z losowej próbki k-osobników"""
-    tournament = random.sample(population, k)
-    winner = min(tournament, key=lambda ind: evaluate_distance(ind, cities))
-    return winner
+    return min(random.sample(population, k), key=lambda ind: evaluate_distance(ind, cities))
 
-def crossover_ox(parent1, parent2):
-    size = len(parent1)
+def crossover_ox(p1, p2):
+    size = len(p1)
     start, end = sorted(random.sample(range(size), 2))
     child = [None] * size
-    child[start:end] = parent1[start:end]
-
-    fill_values = [gene for gene in parent2 if gene not in child]
-    fill_idx = 0
+    child[start:end] = p1[start:end]
+    fill_values = [gene for gene in p2 if gene not in child]
+    idx = 0
     for i in range(size):
         if child[i] is None:
-            child[i] = fill_values[fill_idx]
-            fill_idx += 1
+            child[i] = fill_values[idx]
+            idx += 1
     return child
 
-def mutate_insert(individual):
-    """Mutacja typu insert: wybiera jeden gen i wstawia go w inne miejsce"""
+def mutate_insert(ind):
     if random.random() < MUTATION_RATE:
-        individual = individual.copy()
-        i, j = random.sample(range(len(individual)), 2)
-        gene = individual.pop(i)
-        individual.insert(j, gene)
-    return individual
+        i, j = random.sample(range(len(ind)), 2)
+        gene = ind.pop(i)
+        ind.insert(j, gene)
+    return ind
 
-def mutate_swap(individual):
-    """Losowo zamienia dwa miasta w chromosomie"""
+def mutate_swap(ind):
     if random.random() < MUTATION_RATE:
-        i, j = random.sample(range(len(individual)), 2)
-        individual[i], individual[j] = individual[j], individual[i]
-    return individual
+        i, j = random.sample(range(len(ind)), 2)
+        ind[i], ind[j] = ind[j], ind[i]
+    return ind
 
-def mutate(individual):
-    """Losowo wybiera typ mutacji"""
-    if random.random() < 0.5:
-        return mutate_insert(individual)
-    else:
-        return mutate_swap(individual)
+def mutate(individual, insert_prob):
+    return mutate_insert(individual.copy()) if random.random() < insert_prob else mutate_swap(individual.copy())
 
-
-def create_new_population(best_individuals, all_population, cities, population_size):
-    # ELITISM: jeden najlepszy osobnik przechodzi bez zmian
+def create_new_population(best_individuals, all_population, cities, pop_size, insert_prob, selection_method):
     new_population = [best_individuals[0]]
-
-    while len(new_population) < population_size:
-        if SELECTION_METHOD == "roulette":
-            parent1 = roulette_selection(best_individuals, cities)
-            parent2 = roulette_selection(best_individuals, cities)
-        elif SELECTION_METHOD == "tournament":
-            parent1 = tournament_selection(best_individuals, cities)
-            parent2 = tournament_selection(best_individuals, cities)
+    while len(new_population) < pop_size:
+        if selection_method == "roulette":
+            p1 = roulette_selection(best_individuals, cities)
+            p2 = roulette_selection(best_individuals, cities)
         else:
-            raise ValueError("Nieznana metoda selekcji. Użyj 'roulette' lub 'tournament'.")
-
-        child = crossover_ox(parent1, parent2)
-        mutated_child = mutate(child)
-        new_population.append(mutated_child)
-
+            p1 = tournament_selection(best_individuals, cities)
+            p2 = tournament_selection(best_individuals, cities)
+        child = crossover_ox(p1, p2)
+        new_population.append(mutate(child, insert_prob))
     return new_population
 
+def run_genetic_algorithm(
+    num_cities=NUM_CITIES,
+    pop_size=POPULATION_COUNT,
+    best_count=BEST_COUNT,
+    grid_size=GRID_SIZE,
+    dist_bound=DIST_FROM_BOUND,
+    mutation_rate=MUTATION_RATE,
+    insert_prob=INSERT_PROB,
+    generations=GENERATIONS,
+    selection_method=SELECTION_METHOD,
+    seed=SEED,
+    show_progress=False
+):
+    random.seed(seed)
+    global MUTATION_RATE
+    MUTATION_RATE = mutation_rate
 
-
-def main():
-    global MUTATION_RATE  # żeby można było go modyfikować
-    cities = generate_cities(NUM_CITIES)
-    population = generate_population(POPULATION_COUNT, NUM_CITIES)
+    cities = generate_cities(num_cities, grid_size)
+    population = generate_population(pop_size, num_cities)
 
     best_distance = float('inf')
-    no_improvement_counter = 0
+    no_improve = 0
+    best_distances = []
+    avg_distances = []
 
-    for gen in range(GENERATIONS):
-        best_individuals = select_best_individuals(population, cities, BEST_COUNT)
-        current_best = best_individuals[0]
-        current_distance = evaluate_distance(current_best, cities)
+    for gen in range(generations):
+        best_ind = select_best_individuals(population, cities, best_count)
+        current_best = best_ind[0]
+        current_dist = evaluate_distance(current_best, cities)
 
-        # Sprawdzamy poprawę
-        if current_distance < best_distance:
-            best_distance = current_distance
-            no_improvement_counter = 0
+        best_distances.append(current_dist)
+        avg = sum(evaluate_distance(ind, cities) for ind in population) / len(population)
+        avg_distances.append(avg)
+
+        if current_dist < best_distance:
+            best_distance = current_dist
+            no_improve = 0
         else:
-            no_improvement_counter += 1
+            no_improve += 1
 
-        # Zwiększamy mutację co 100 generacji bez poprawy
-        if no_improvement_counter > 0 and no_improvement_counter % 100 == 0:
-            MUTATION_RATE = min(1.0, MUTATION_RATE*1.15)
-            print(f"Brak poprawy od {no_improvement_counter} generacji — MUTATION_RATE zwiększone do {MUTATION_RATE:.2f}")
+        if no_improve > 0 and no_improve % 100 == 0:
+            MUTATION_RATE = min(1.0, MUTATION_RATE * 1.15)
 
-        if gen % 50 == 0:
-            print(f"Generacja {gen} | Najlepszy dystans: {current_distance:.2f}")
-            plot_route(current_best, cities, generation=gen)
+        if show_progress and gen % 50 == 0:
+            clear_output(wait=True)
+            print(f"Generacja {gen} | Najlepszy dystans: {current_dist:.2f}")
+            plot_route(current_best, cities, gen)
 
-        population = create_new_population(best_individuals, population, cities, POPULATION_COUNT)
-
+        population = create_new_population(
+            best_ind, population, cities,
+            pop_size, insert_prob, selection_method
+        )
 
     best_final = select_best_individuals(population, cities, 1)[0]
-    print("Najlepszy osobnik:", best_final)
-    print("Długość trasy:", evaluate_distance(best_final, cities))
-    plot_route(best_final, cities,generation=GENERATIONS)
+    if show_progress:
+        print("Najlepszy osobnik:", best_final)
+        print("Długość trasy:", evaluate_distance(best_final, cities))
+        plot_route(best_final, cities, generation=generations)
 
+    return {
+        "cities": cities,
+        "best_individual": best_final,
+        "best_distance": evaluate_distance(best_final, cities),
+        "best_distances": best_distances,
+        "avg_distances": avg_distances,
+        "final_mutation_rate": MUTATION_RATE
+    }
 
 if __name__ == '__main__':
-    main()
+    run_genetic_algorithm(show_progress=True)
