@@ -11,6 +11,22 @@ def generate_cities(n, size):
         for _ in range(n)
     ]
 
+
+def generate_cities_circle(n, size, margin=30):
+    radius = (size // 2) - margin
+    center_x = size // 2
+    center_y = size // 2
+
+    cities = []
+    for i in range(n):
+        angle = 2 * math.pi * i / n
+        x = int(center_x + radius * math.cos(angle))
+        y = int(center_y + radius * math.sin(angle))
+        cities.append((x, y))
+
+    return cities
+
+
 def plot_route(route, cities, generation=None):
     ordered_cities = [cities[i] for i in route] + [cities[route[0]]]
     x, y = zip(*ordered_cities)
@@ -108,6 +124,7 @@ def run_genetic_algorithm(
     random.seed(seed)
     global MUTATION_RATE
     MUTATION_RATE = mutation_rate
+
 
     cities = generate_cities(num_cities, grid_size)
     population = generate_population(pop_size, num_cities)
