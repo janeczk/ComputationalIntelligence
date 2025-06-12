@@ -105,4 +105,4 @@ ax.set_facecolor('#f8f9fa') # Delikatne tło dla obszaru wykresu
 
 plt.tight_layout() # Dopasowanie, aby nic nie zostało obcięte
 plt.show()
-#xddd
+#xdddd
